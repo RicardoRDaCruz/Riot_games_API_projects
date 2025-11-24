@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 #load_dotenv()
 #api_key=os.getenv('API_KEY')
-api_key='RGAPI-36e4662e-a26b-4d0a-8ebf-321ebd77c0cf'
+api_key='RGAPI-01e608ac-0304-4c9a-b7db-d6b53fcfea34'
 
 ranked5x5='RANKED_SOLO_5x5'
 gn='永遠の拷問'
@@ -170,9 +170,12 @@ def process_match_json_one_player(match_json, puuid):
     lane = player['lane']
     win = player['win']
 
-    champ_id = player['championId']
+    champ_id = player['championId'] 
+    
+    champ_name = retrieve_champ_name(champ_id)
     champ_transform = player['championTransform']
     champ_level = player['champLevel']
+
     team_position = player['teamPosition']
 
     gold_earned = player['goldEarned']
@@ -229,6 +232,7 @@ def process_match_json_one_player(match_json, puuid):
     #???
     detector_wards_placed = player['detectorWardsPlaced']
     role = player['role']
+    print(role)
     vision_wards_bought = player['visionWardsBoughtInGame']
     
     for team in teams:
@@ -243,7 +247,7 @@ def process_match_json_one_player(match_json, puuid):
             tower = obj['tower']
             inhibitor = obj['inhibitor']
 
-    team_objectives = obj
+    team_objectives = [baron, dragon, rift_herald, grubs, atackhan, tower, inhibitor]
         
     for obj in [baron, dragon, rift_herald, grubs, atackhan, tower, inhibitor]:
             first=obj['first']
@@ -264,7 +268,7 @@ def process_match_json_one_player(match_json, puuid):
         'lane': [lane],
         'bans': [bans],
         'win': [win],
-        'champ_id': [champ_id],
+        'champ_name': [champ_name],
         'champ_transform': [champ_transform],
         'champ_level': [champ_level],
         'team_position': [team_position],
@@ -312,34 +316,73 @@ def process_match_json_one_player(match_json, puuid):
 
     return matchDF
 
-def build_match_df(region='americas', playersDF=None, start=0, count=20):
+def build_match_df(region, playersDF, start, count):
     df=pd.DataFrame()
     for player in playersDF.itertuples(index=False):
         game_history=get_match_history(region=region, puuid=player.puuid,start=start,count=count)
         for game in game_history:
-            print(game)
             game_json = get_match_data_from_id(region, matchId=game)
             df=pd.concat([df, process_match_json_one_player(game_json, player.puuid)])
     return df
 
+def get_community_dragon_json(element):
+    url=f'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/{element}.json'
+    response=requests.get(url)
+    json=response.json()
+    return json
+
+def json_extract(obj, key):
+    arr = []
+    def extract(obj, arr, key):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k==key:
+                    arr.append(v)
+                elif isinstance(v, (dict, list)):
+                    extract(v, arr, key)
+        elif isinstance(obj, list):
+            for item in obj:
+                extract(item, arr, key)
+        return arr    
+    values = extract(obj, arr, key)
+    return values
+
+def build_ids_names_dict(json):
+    ids = json_extract(json, 'id')
+    names = json_extract(json, 'name')
+    dict_ids_names = dict(map(lambda i, j : (int(i), j), ids, names))
+    return dict_ids_names
+        
+def retrieve_champ_name(champ_id):
+    url = f'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champions/{str(champ_id)}.json'
+    response = requests.get(url)
+    champ_json = response.json()
+    champ_name = json_extract(champ_json, 'name')[0]
+    return champ_name
+
 def main():
     #puuid=get_puuid(region='europe',game_name=gn,tag_line=tl)
-    #print(puuid)
     #gn_tl=get_gn_tn(region='europe', puuid=puuid)
-    #print(gn_tl)
     #br_2000=get_top_rank('br1',2000)
     #match_histories=[]
     #for i in br_2000.head()['puuid']:
     #    match_histories.append(get_match_history(region='americas',puuid=i))
     br_1 = get_top_rank('br1',1)    
-    df_1 = build_match_df(region='americas', playersDF=br_1,start=0,count=10)
-    kr_1 = get_top_rank('kr',1)    
-    df_2 = build_match_df(region='asia', playersDF=kr_1,start=0,count=10)
-    print(df_1['game_duration'].mean())
-    print(df_2['game_duration'].mean())
-        
-    #game=get_match_data_from_id(region='americas',matchId='BR1_3164521078')
-    #puuid='kPmtbsF27iv9pxfD2ELbBYI11EcW_j8nDN4G56wm4AKI05lulrGZSNp-BEH8W8zOk2KYSshLDuKk-Q'    
+    df_1 = build_match_df('americas', br_1,0,count=1)
+    #kr_1 = get_top_rank('kr',5)    
+    #df_2 = build_match_df(region='asia', playersDF=kr_1,start=0,count=10)
+    #print(df_1['game_duration'].mean())
+    #print(df_2['game_duration'].mean())
+
+    community_dragon_list = ['items','perks','perkstyles']
+    community_dragon_dict = {}
+    for element in community_dragon_list:
+        element_json = get_community_dragon_json(element)
+        element_dict=build_ids_names_dict(element_json)
+        community_dragon_dict[element] = element_dict
+
+    for element in community_dragon_dict:
+        df_1 = df_1.replace(community_dragon_dict[element])  
 
 if __name__ == "__main__":
     main()
