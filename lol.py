@@ -1,19 +1,34 @@
+#file architeture
 import os
 import requests
+
+#Future Sessions for free API use 
 from concurrent.futures import as_completed, ProcessPoolExecutor
 from requests_futures.sessions import FuturesSession
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+#pandas
 import pandas as pd
+
+#Database
+from pangres import upsert
+from sqlalchemy import text, create_engine
+
+#dotenv
 from dotenv import load_dotenv
 
-#load_dotenv()
-#api_key=os.getenv('API_KEY')
-api_key='RGAPI-01e608ac-0304-4c9a-b7db-d6b53fcfea34'
+load_dotenv()
+api_key=os.getenv('API_KEY')
+db_username=os.getenv('db_username')
+db_password=os.getenv('db_password')
+db_host=os.getenv('db_host')
+db_port=os.getenv('db_port')
+db_name=os.getenv('db_name')
 
 ranked5x5='RANKED_SOLO_5x5'
-gn='永遠の拷問'
-tl='xox'
+gn='ersopf'
+tl='KR1'
 
 def get_puuid(summonerId=None, game_name=None, tag_line=None, region=None):
 
@@ -97,7 +112,7 @@ def get_match_history(region=None, puuid=None, start=0, count=20):
 
     url_1=f'https://{region}.api.riotgames.com'
     url_2=f'/lol/match/v5/matches/by-puuid/{puuid}/ids'
-    query_params=f'?{start}=0&{count}=100'
+    query_params=f'?start={start}&count={count}'
     url=f'{url_1}{url_2}{query_params}&api_key={api_key}'
     future = session.get(url)
     response = future.result()
@@ -232,10 +247,9 @@ def process_match_json_one_player(match_json, puuid):
     #???
     detector_wards_placed = player['detectorWardsPlaced']
     role = player['role']
-    print(role)
     vision_wards_bought = player['visionWardsBoughtInGame']
     
-    for team in teams:
+    for team in teams:        
         if team['teamId']==player['teamId']:
             bans = team['bans']
             obj = team['objectives']
@@ -360,15 +374,30 @@ def retrieve_champ_name(champ_id):
     champ_name = json_extract(champ_json, 'name')[0]
     return champ_name
 
+def create_db_connect_string(db_username,db_password,db_host,db_port,db_name):
+    connection_url = 'postgresql+psycopg2://'+db_username+':'+db_password+'@'+db_host+':'+db_port+'/'+db_name
+    return connection_url
+
+
 def main():
-    #puuid=get_puuid(region='europe',game_name=gn,tag_line=tl)
-    #gn_tl=get_gn_tn(region='europe', puuid=puuid)
+    #puuid=get_puuid(region='asia',game_name=gn,tag_line=tl)
+    #match_history=get_match_history(region='asia', puuid=puuid,start=0,count=100)
+    #dict_match_data = pd.DataFrame()
+    #for match in match_history:
+    #    match_df = get_match_data_from_id(region='asia',matchId=match)
+    #    if len(match_df['info']['teams'])==2:
+    #        match_df = process_match_json_one_player(match_df, puuid)
+    #        dict_match_data = pd.concat([dict_match_data, match_df])
+    #print(match_history)
+    #gn_tl=get_gn_tn(region='asia', puuid=puuid)
+    #print(puuid)
+    #print(gn_tl)
     #br_2000=get_top_rank('br1',2000)
     #match_histories=[]
     #for i in br_2000.head()['puuid']:
     #    match_histories.append(get_match_history(region='americas',puuid=i))
-    br_1 = get_top_rank('br1',1)    
-    df_1 = build_match_df('americas', br_1,0,count=1)
+    #br_1 = get_top_rank('br1',1)    
+    #df_1 = build_match_df('americas', br_1,0,count=1)
     #kr_1 = get_top_rank('kr',5)    
     #df_2 = build_match_df(region='asia', playersDF=kr_1,start=0,count=10)
     #print(df_1['game_duration'].mean())
@@ -381,8 +410,31 @@ def main():
         element_dict=build_ids_names_dict(element_json)
         community_dragon_dict[element] = element_dict
 
-    for element in community_dragon_dict:
-        df_1 = df_1.replace(community_dragon_dict[element])  
+
+    #for element in community_dragon_dict:
+    #    dict_match_data = dict_match_data.replace(community_dragon_dict[element])
+    #dict_match_data['pk']=dict_match_data['match_id']+'_'+dict_match_data['summoner_id']
+    #dict_match_data=dict_match_data.set_index('pk')
+    #print(dict_match_data)
+
+    connection_url = create_db_connect_string(db_username,db_password,db_host,db_port,db_name)
+    db_engine = create_engine(connection_url, pool_recycle=3600)
+    connection = db_engine.connect()
+    #upsert(con=connection,df=dict_match_data,schema='soloq', table_name='kaiwing_soloq_games', create_table=True, create_schema=True,if_row_exists='update')
+    #connection.commit()
+
+    df_kaiwing = pd.read_sql('''
+                                select 
+                                    COUNT(pk), game_creation
+                                from 
+                                    soloq.kaiwing_soloq_games
+                                group by game_creation
+                                order by game_creation desc'''
+                                , connection)
+    
+    print(df_kaiwing)
+
+
 
 if __name__ == "__main__":
     main()
